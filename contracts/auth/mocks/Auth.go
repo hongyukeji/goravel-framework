@@ -3,6 +3,7 @@
 package mocks
 
 import (
+	jwt "github.com/golang-jwt/jwt/v4"
 	auth "github.com/goravel/framework/contracts/auth"
 	http "github.com/goravel/framework/contracts/http"
 
@@ -98,6 +99,27 @@ func (_m *Auth) Parse(ctx http.Context, token string) error {
 	}
 
 	return r0
+}
+
+// ParseToken provides a mock function with given fields: ctx, token
+func (_m *Auth) ParseToken(ctx http.Context, token string) (*jwt.Token, error) {
+	ret := _m.Called(ctx, token)
+
+	var r0 *jwt.Token
+	if rf, ok := ret.Get(0).(func(http.Context, string) *jwt.Token); ok {
+		r0 = rf(ctx, token)
+	} else {
+		r0 = ret.Get(0).(*jwt.Token)
+	}
+
+	var r1 error
+	if rf, ok := ret.Get(1).(func(http.Context, string) error); ok {
+		r1 = rf(ctx, token)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
 }
 
 // Refresh provides a mock function with given fields: ctx
