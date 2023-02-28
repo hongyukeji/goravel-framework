@@ -48,7 +48,7 @@ func (app *Auth) Guard(name string) contractauth.Auth {
 	return NewAuth(name)
 }
 
-//User need parse token first.
+// User need parse token first.
 func (app *Auth) User(ctx http.Context, user any) error {
 	auth, ok := ctx.Value(ctxKey).(Guards)
 	if !ok || auth[app.guard] == nil {
@@ -108,6 +108,44 @@ func (app *Auth) Parse(ctx http.Context, token string) error {
 	return nil
 }
 
+func (app *Auth) ParseToken(ctx http.Context, token string) (*jwt.Token, error) {
+	token = strings.ReplaceAll(token, "Bearer ", "")
+	if tokenIsDisabled(token) {
+		return nil, ErrorTokenDisabled
+	}
+
+	jwtSecret := facades.Config.GetString("jwt.secret")
+	tokenClaims, err := jwt.ParseWithClaims(token, &Claims{}, func(token *jwt.Token) (any, error) {
+		return []byte(jwtSecret), nil
+	})
+	if err != nil {
+		if strings.Contains(err.Error(), jwt.ErrTokenExpired.Error()) && tokenClaims != nil {
+			claims, ok := tokenClaims.Claims.(*Claims)
+			if !ok {
+				return nil, ErrorInvalidClaims
+			}
+
+			app.makeAuthContext(ctx, claims, "")
+
+			return nil, ErrorTokenExpired
+		} else {
+			return nil, err
+		}
+	}
+	if tokenClaims == nil || !tokenClaims.Valid {
+		return nil, ErrorInvalidToken
+	}
+
+	claims, ok := tokenClaims.Claims.(*Claims)
+	if !ok {
+		return nil, ErrorInvalidClaims
+	}
+
+	app.makeAuthContext(ctx, claims, token)
+
+	return tokenClaims, nil
+}
+
 func (app *Auth) Login(ctx http.Context, user any) (token string, err error) {
 	id := database.GetID(user)
 	if id == nil {
@@ -150,7 +188,7 @@ func (app *Auth) LoginUsingID(ctx http.Context, id any) (token string, err error
 	return
 }
 
-//Refresh need parse token first.
+// Refresh need parse token first.
 func (app *Auth) Refresh(ctx http.Context) (token string, err error) {
 	auth, ok := ctx.Value(ctxKey).(Guards)
 	if !ok || auth[app.guard] == nil {
