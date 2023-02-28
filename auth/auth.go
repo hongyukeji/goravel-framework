@@ -108,10 +108,10 @@ func (app *Auth) Parse(ctx http.Context, token string) error {
 	return nil
 }
 
-func (app *Auth) ParseToken(ctx http.Context, token string) (*jwt.Token, error) {
+func (app *Auth) ParseToken(ctx http.Context, token string) (jwt.Token, error) {
 	token = strings.ReplaceAll(token, "Bearer ", "")
 	if tokenIsDisabled(token) {
-		return nil, ErrorTokenDisabled
+		return jwt.Token{}, ErrorTokenDisabled
 	}
 
 	jwtSecret := facades.Config.GetString("jwt.secret")
@@ -122,28 +122,28 @@ func (app *Auth) ParseToken(ctx http.Context, token string) (*jwt.Token, error) 
 		if strings.Contains(err.Error(), jwt.ErrTokenExpired.Error()) && tokenClaims != nil {
 			claims, ok := tokenClaims.Claims.(*Claims)
 			if !ok {
-				return tokenClaims, ErrorInvalidClaims
+				return *tokenClaims, ErrorInvalidClaims
 			}
 
 			app.makeAuthContext(ctx, claims, "")
 
-			return tokenClaims, ErrorTokenExpired
+			return *tokenClaims, ErrorTokenExpired
 		} else {
-			return tokenClaims, err
+			return *tokenClaims, err
 		}
 	}
 	if tokenClaims == nil || !tokenClaims.Valid {
-		return tokenClaims, ErrorInvalidToken
+		return *tokenClaims, ErrorInvalidToken
 	}
 
 	claims, ok := tokenClaims.Claims.(*Claims)
 	if !ok {
-		return tokenClaims, ErrorInvalidClaims
+		return *tokenClaims, ErrorInvalidClaims
 	}
 
 	app.makeAuthContext(ctx, claims, token)
 
-	return tokenClaims, nil
+	return *tokenClaims, nil
 }
 
 func (app *Auth) Login(ctx http.Context, user any) (token string, err error) {

@@ -9,7 +9,7 @@ import (
 type Auth interface {
 	Guard(name string) Auth
 	Parse(ctx http.Context, token string) error
-	ParseToken(ctx http.Context, token string) (*jwt.Token, error)
+	ParseToken(ctx http.Context, token string) (jwt.Token, error)
 	User(ctx http.Context, user any) error
 	Login(ctx http.Context, user any) (token string, err error)
 	LoginUsingID(ctx http.Context, id any) (token string, err error)

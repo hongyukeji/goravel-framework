@@ -102,14 +102,14 @@ func (_m *Auth) Parse(ctx http.Context, token string) error {
 }
 
 // ParseToken provides a mock function with given fields: ctx, token
-func (_m *Auth) ParseToken(ctx http.Context, token string) (*jwt.Token, error) {
+func (_m *Auth) ParseToken(ctx http.Context, token string) (jwt.Token, error) {
 	ret := _m.Called(ctx, token)
 
-	var r0 *jwt.Token
-	if rf, ok := ret.Get(0).(func(http.Context, string) *jwt.Token); ok {
+	var r0 jwt.Token
+	if rf, ok := ret.Get(0).(func(http.Context, string) jwt.Token); ok {
 		r0 = rf(ctx, token)
 	} else {
-		r0 = ret.Get(0).(*jwt.Token)
+		r0 = ret.Get(0).(jwt.Token)
 	}
 
 	var r1 error
