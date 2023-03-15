@@ -5,18 +5,16 @@ import (
 	"math/rand"
 	"strconv"
 	"strings"
-	"time"
 	"unicode"
 
-	"golang.org/x/text/cases"
-	"golang.org/x/text/language"
+	supporttime "github.com/goravel/framework/support/time"
 )
 
 func Random(length int) string {
 	str := "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
 	bytes := []byte(str)
 	var result []byte
-	rand.Seed(time.Now().UnixNano() + int64(rand.Intn(100)))
+	rand.Seed(supporttime.Now().UnixNano() + int64(rand.Intn(100)))
 	for i := 0; i < length; i++ {
 		result = append(result, bytes[rand.Intn(len(bytes))])
 	}
@@ -25,11 +23,23 @@ func Random(length int) string {
 }
 
 func Case2Camel(name string) string {
-	name = strings.Replace(name, "_", " ", -1)
-	caser := cases.Title(language.English)
-	name = caser.String(name)
+	names := strings.Split(name, "_")
 
-	return strings.Replace(name, " ", "", -1)
+	var newName string
+	for _, item := range names {
+		buffer := NewBuffer()
+		for i, r := range item {
+			if i == 0 {
+				buffer.Append(unicode.ToUpper(r))
+			} else {
+				buffer.Append(r)
+			}
+		}
+
+		newName += buffer.String()
+	}
+
+	return newName
 }
 
 func Camel2Case(name string) string {

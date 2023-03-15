@@ -31,14 +31,15 @@ func TestRun(t *testing.T) {
 
 	tests := []struct {
 		name        string
-		setup       func(host string) error
+		setup       func(host string, port string) error
 		host        string
+		port        string
 		expectError error
 	}{
 		{
 			name: "error when default host is empty",
-			setup: func(host string) error {
-				mockConfig.On("GetString", "route.host").Return(host).Once()
+			setup: func(host string, port string) error {
+				mockConfig.On("GetString", "http.host").Return(host).Once()
 
 				go func() {
 					assert.EqualError(t, route.Run(), "host can't be empty")
@@ -49,10 +50,26 @@ func TestRun(t *testing.T) {
 			},
 		},
 		{
+			name: "error when default port is empty",
+			setup: func(host string, port string) error {
+				mockConfig.On("GetString", "http.host").Return(host).Once()
+				mockConfig.On("GetString", "http.port").Return(port).Once()
+
+				go func() {
+					assert.EqualError(t, route.Run(), "port can't be empty")
+				}()
+				time.Sleep(1 * time.Second)
+
+				return errors.New("error")
+			},
+			host: "127.0.0.1",
+		},
+		{
 			name: "use default host",
-			setup: func(host string) error {
+			setup: func(host string, port string) error {
 				mockConfig.On("GetBool", "app.debug").Return(true).Once()
-				mockConfig.On("GetString", "route.host").Return(host).Once()
+				mockConfig.On("GetString", "http.host").Return(host).Once()
+				mockConfig.On("GetString", "http.port").Return(port).Once()
 
 				go func() {
 					assert.Nil(t, route.Run())
@@ -60,11 +77,12 @@ func TestRun(t *testing.T) {
 
 				return nil
 			},
-			host: "127.0.0.1:3001",
+			host: "127.0.0.1",
+			port: "3001",
 		},
 		{
 			name: "use custom host",
-			setup: func(host string) error {
+			setup: func(host string, port string) error {
 				mockConfig.On("GetBool", "app.debug").Return(true).Once()
 
 				go func() {
@@ -87,9 +105,13 @@ func TestRun(t *testing.T) {
 					"Hello": "Goravel",
 				})
 			})
-			if err := test.setup(test.host); err == nil {
+			if err := test.setup(test.host, test.port); err == nil {
 				time.Sleep(1 * time.Second)
-				resp, err := http.Get("http://" + test.host)
+				hostUrl := "http://" + test.host
+				if test.port != "" {
+					hostUrl = hostUrl + ":" + test.port
+				}
+				resp, err := http.Get(hostUrl)
 				assert.Nil(t, err)
 				defer resp.Body.Close()
 
@@ -108,14 +130,15 @@ func TestRunTLS(t *testing.T) {
 
 	tests := []struct {
 		name        string
-		setup       func(host string) error
+		setup       func(host string, port string) error
 		host        string
+		port        string
 		expectError error
 	}{
 		{
 			name: "error when default host is empty",
-			setup: func(host string) error {
-				mockConfig.On("GetString", "route.tls.host").Return(host).Once()
+			setup: func(host string, port string) error {
+				mockConfig.On("GetString", "http.tls.host").Return(host).Once()
 
 				go func() {
 					assert.EqualError(t, route.RunTLS(), "host can't be empty")
@@ -126,12 +149,28 @@ func TestRunTLS(t *testing.T) {
 			},
 		},
 		{
+			name: "error when default port is empty",
+			setup: func(host string, port string) error {
+				mockConfig.On("GetString", "http.tls.host").Return(host).Once()
+				mockConfig.On("GetString", "http.tls.port").Return(port).Once()
+
+				go func() {
+					assert.EqualError(t, route.RunTLS(), "port can't be empty")
+				}()
+				time.Sleep(1 * time.Second)
+
+				return errors.New("error")
+			},
+			host: "127.0.0.1",
+		},
+		{
 			name: "use default host",
-			setup: func(host string) error {
+			setup: func(host string, port string) error {
 				mockConfig.On("GetBool", "app.debug").Return(true).Once()
-				mockConfig.On("GetString", "route.tls.host").Return(host).Once()
-				mockConfig.On("GetString", "route.tls.ssl.cert").Return("test_ca.crt").Once()
-				mockConfig.On("GetString", "route.tls.ssl.key").Return("test_ca.key").Once()
+				mockConfig.On("GetString", "http.tls.host").Return(host).Once()
+				mockConfig.On("GetString", "http.tls.port").Return(port).Once()
+				mockConfig.On("GetString", "http.tls.ssl.cert").Return("test_ca.crt").Once()
+				mockConfig.On("GetString", "http.tls.ssl.key").Return("test_ca.key").Once()
 
 				go func() {
 					assert.Nil(t, route.RunTLS())
@@ -139,14 +178,15 @@ func TestRunTLS(t *testing.T) {
 
 				return nil
 			},
-			host: "127.0.0.1:3003",
+			host: "127.0.0.1",
+			port: "3003",
 		},
 		{
 			name: "use custom host",
-			setup: func(host string) error {
+			setup: func(host string, port string) error {
 				mockConfig.On("GetBool", "app.debug").Return(true).Once()
-				mockConfig.On("GetString", "route.tls.ssl.cert").Return("test_ca.crt").Once()
-				mockConfig.On("GetString", "route.tls.ssl.key").Return("test_ca.key").Once()
+				mockConfig.On("GetString", "http.tls.ssl.cert").Return("test_ca.crt").Once()
+				mockConfig.On("GetString", "http.tls.ssl.key").Return("test_ca.key").Once()
 
 				go func() {
 					assert.Nil(t, route.RunTLS(host))
@@ -168,13 +208,17 @@ func TestRunTLS(t *testing.T) {
 					"Hello": "Goravel",
 				})
 			})
-			if err := test.setup(test.host); err == nil {
+			if err := test.setup(test.host, test.port); err == nil {
 				time.Sleep(1 * time.Second)
 				tr := &http.Transport{
 					TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
 				}
 				client := &http.Client{Transport: tr}
-				resp, err := client.Get("https://" + test.host)
+				hostUrl := "https://" + test.host
+				if test.port != "" {
+					hostUrl = hostUrl + ":" + test.port
+				}
+				resp, err := client.Get(hostUrl)
 				assert.Nil(t, err)
 				defer resp.Body.Close()
 
@@ -703,6 +747,7 @@ func TestGinRequest(t *testing.T) {
 			url:    "/file",
 			setup: func(method, url string) error {
 				gin.Post("/file", func(ctx httpcontract.Context) {
+					mockConfig.On("GetString", "app.name").Return("goravel").Once()
 					mockConfig.On("GetString", "filesystems.default").Return("local").Once()
 
 					fileInfo, err := ctx.Request().File("file")
@@ -1382,20 +1427,22 @@ func TestGinResponse(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		beforeEach()
-		err := test.setup(test.method, test.url)
-		assert.Nil(t, err)
+		t.Run(test.name, func(t *testing.T) {
+			beforeEach()
+			err := test.setup(test.method, test.url)
+			assert.Nil(t, err)
 
-		w := httptest.NewRecorder()
-		gin.ServeHTTP(w, req)
+			w := httptest.NewRecorder()
+			gin.ServeHTTP(w, req)
 
-		if test.expectBody != "" {
-			assert.Equal(t, test.expectBody, w.Body.String(), test.name)
-		}
-		if test.expectHeader != "" {
-			assert.Equal(t, test.expectHeader, strings.Join(w.Header().Values("Hello"), ""), test.name)
-		}
-		assert.Equal(t, test.expectCode, w.Code, test.name)
+			if test.expectBody != "" {
+				assert.Equal(t, test.expectBody, w.Body.String(), test.name)
+			}
+			if test.expectHeader != "" {
+				assert.Equal(t, test.expectHeader, strings.Join(w.Header().Values("Hello"), ""), test.name)
+			}
+			assert.Equal(t, test.expectCode, w.Code, test.name)
+		})
 	}
 }
 
@@ -1407,21 +1454,21 @@ func (r *CreateUser) Authorize(ctx httpcontract.Context) error {
 	return nil
 }
 
-func (r *CreateUser) Rules() map[string]string {
+func (r *CreateUser) Rules(ctx httpcontract.Context) map[string]string {
 	return map[string]string{
 		"name": "required",
 	}
 }
 
-func (r *CreateUser) Messages() map[string]string {
+func (r *CreateUser) Messages(ctx httpcontract.Context) map[string]string {
 	return map[string]string{}
 }
 
-func (r *CreateUser) Attributes() map[string]string {
+func (r *CreateUser) Attributes(ctx httpcontract.Context) map[string]string {
 	return map[string]string{}
 }
 
-func (r *CreateUser) PrepareForValidation(data validation.Data) error {
+func (r *CreateUser) PrepareForValidation(ctx httpcontract.Context, data validation.Data) error {
 	if name, exist := data.Get("name"); exist {
 		return data.Set("name", name.(string)+"1")
 	}
@@ -1437,20 +1484,20 @@ func (r *Unauthorize) Authorize(ctx httpcontract.Context) error {
 	return errors.New("error")
 }
 
-func (r *Unauthorize) Rules() map[string]string {
+func (r *Unauthorize) Rules(ctx httpcontract.Context) map[string]string {
 	return map[string]string{
 		"name": "required",
 	}
 }
 
-func (r *Unauthorize) Messages() map[string]string {
+func (r *Unauthorize) Messages(ctx httpcontract.Context) map[string]string {
 	return map[string]string{}
 }
 
-func (r *Unauthorize) Attributes() map[string]string {
+func (r *Unauthorize) Attributes(ctx httpcontract.Context) map[string]string {
 	return map[string]string{}
 }
 
-func (r *Unauthorize) PrepareForValidation(data validation.Data) error {
+func (r *Unauthorize) PrepareForValidation(ctx httpcontract.Context, data validation.Data) error {
 	return nil
 }

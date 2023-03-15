@@ -1,7 +1,14 @@
 package filesystem
 
 import (
+	"bytes"
+	"mime/multipart"
+	"net/http"
+	"net/http/httptest"
+	"path"
 	"testing"
+
+	"github.com/gin-gonic/gin"
 
 	"github.com/goravel/framework/testing/mock"
 
@@ -54,4 +61,29 @@ func (s *FileTestSuite) TestExtension() {
 	extension, err := testFile.Extension()
 	s.Empty(extension)
 	s.EqualError(err, "unknown file extension")
+}
+
+func TestNewFileFromRequest(t *testing.T) {
+	mockConfig := mock.Config()
+	mockConfig.On("GetString", "app.name").Return("goravel").Once()
+	mockConfig.On("GetString", "filesystems.default").Return("local").Once()
+
+	buf := new(bytes.Buffer)
+	mw := multipart.NewWriter(buf)
+	w, err := mw.CreateFormFile("file", "test.txt")
+	if assert.NoError(t, err) {
+		_, err = w.Write([]byte("test"))
+		assert.NoError(t, err)
+	}
+	mw.Close()
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request, _ = http.NewRequest("POST", "/", buf)
+	c.Request.Header.Set("Content-Type", mw.FormDataContentType())
+	f, err := c.FormFile("file")
+	assert.Nil(t, err)
+	file, err := NewFileFromRequest(f)
+	assert.Nil(t, err)
+	assert.Equal(t, ".txt", path.Ext(file.file))
+
+	mockConfig.AssertExpectations(t)
 }

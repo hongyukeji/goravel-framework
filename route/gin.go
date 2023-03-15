@@ -35,12 +35,17 @@ func NewGin() *Gin {
 
 func (r *Gin) Run(host ...string) error {
 	if len(host) == 0 {
-		defaultHost := facades.Config.GetString("route.host")
+		defaultHost := facades.Config.GetString("http.host")
 		if defaultHost == "" {
 			return errors.New("host can't be empty")
 		}
 
-		host = append(host, defaultHost)
+		defaultPort := facades.Config.GetString("http.port")
+		if defaultPort == "" {
+			return errors.New("port can't be empty")
+		}
+		completeHost := defaultHost + ":" + defaultPort
+		host = append(host, completeHost)
 	}
 
 	outputRoutes(r.instance.Routes())
@@ -51,16 +56,21 @@ func (r *Gin) Run(host ...string) error {
 
 func (r *Gin) RunTLS(host ...string) error {
 	if len(host) == 0 {
-		defaultHost := facades.Config.GetString("route.tls.host")
+		defaultHost := facades.Config.GetString("http.tls.host")
 		if defaultHost == "" {
 			return errors.New("host can't be empty")
 		}
 
-		host = append(host, defaultHost)
+		defaultPort := facades.Config.GetString("http.tls.port")
+		if defaultPort == "" {
+			return errors.New("port can't be empty")
+		}
+		completeHost := defaultHost + ":" + defaultPort
+		host = append(host, completeHost)
 	}
 
-	certFile := facades.Config.GetString("route.tls.ssl.cert")
-	keyFile := facades.Config.GetString("route.tls.ssl.key")
+	certFile := facades.Config.GetString("http.tls.ssl.cert")
+	keyFile := facades.Config.GetString("http.tls.ssl.key")
 
 	return r.RunTLSWithCert(host[0], certFile, keyFile)
 }

@@ -9,15 +9,9 @@ import (
 type Orm interface {
 	Connection(name string) Orm
 	DB() (*sql.DB, error)
-	Query() DB
+	Query() Query
 	Transaction(txFunc func(tx Transaction) error) error
 	WithContext(ctx context.Context) Orm
-}
-
-//go:generate mockery --name=DB
-type DB interface {
-	Query
-	Begin() (Transaction, error)
 }
 
 //go:generate mockery --name=Transaction
@@ -27,18 +21,23 @@ type Transaction interface {
 	Rollback() error
 }
 
+//go:generate mockery --name=Query
 type Query interface {
 	Association(association string) Association
+	Begin() (Transaction, error)
 	Driver() Driver
 	Count(count *int64) error
 	Create(value any) error
-	Delete(value any, conds ...any) error
+	Delete(value any, conds ...any) (*Result, error)
 	Distinct(args ...any) Query
-	Exec(sql string, values ...any) error
+	Exec(sql string, values ...any) (*Result, error)
 	Find(dest any, conds ...any) error
 	First(dest any) error
 	FirstOrCreate(dest any, conds ...any) error
-	ForceDelete(value any, conds ...any) error
+	FirstOr(dest any, callback func() error) error
+	FirstOrFail(dest any) error
+	FirstOrNew(dest any, attributes any, values ...any) error
+	ForceDelete(value any, conds ...any) (*Result, error)
 	Get(dest any) error
 	Group(name string) Query
 	Having(query any, args ...any) Query
@@ -60,7 +59,8 @@ type Query interface {
 	Select(query any, args ...any) Query
 	Table(name string, args ...any) Query
 	Update(column string, value any) error
-	Updates(values any) error
+	Updates(values any) (*Result, error)
+	UpdateOrCreate(dest any, attributes any, values any) error
 	Where(query any, args ...any) Query
 	WithTrashed() Query
 	With(query string, args ...any) Query
@@ -74,4 +74,8 @@ type Association interface {
 	Delete(values ...any) error
 	Clear() error
 	Count() int64
+}
+
+type Result struct {
+	RowsAffected int64
 }

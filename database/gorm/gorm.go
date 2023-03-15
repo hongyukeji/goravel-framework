@@ -12,6 +12,7 @@ import (
 	"github.com/spf13/cast"
 	"gorm.io/gorm"
 	gormLogger "gorm.io/gorm/logger"
+	"gorm.io/gorm/schema"
 	"gorm.io/plugin/dbresolver"
 
 	contractsdatabase "github.com/goravel/framework/contracts/database"
@@ -19,6 +20,7 @@ import (
 	"github.com/goravel/framework/database/orm"
 	"github.com/goravel/framework/facades"
 	"github.com/goravel/framework/support/database"
+	supporttime "github.com/goravel/framework/support/time"
 )
 
 func New(connection string) (*gorm.DB, error) {
@@ -35,7 +37,7 @@ func New(connection string) (*gorm.DB, error) {
 		return nil, nil
 	}
 
-	instance, err := instance(dial)
+	instance, err := instance(connection, dial)
 	if err != nil {
 		return nil, err
 	}
@@ -65,7 +67,7 @@ func configurePool(db *gorm.DB) error {
 	return nil
 }
 
-func instance(dialector gorm.Dialector) (*gorm.DB, error) {
+func instance(connection string, dialector gorm.Dialector) (*gorm.DB, error) {
 	var logLevel gormLogger.LogLevel
 	if facades.Config.GetBool("app.debug") {
 		logLevel = gormLogger.Info
@@ -84,6 +86,13 @@ func instance(dialector gorm.Dialector) (*gorm.DB, error) {
 		DisableForeignKeyConstraintWhenMigrating: true,
 		SkipDefaultTransaction:                   true,
 		Logger:                                   logger.LogMode(logLevel),
+		NowFunc: func() time.Time {
+			return supporttime.Now()
+		},
+		NamingStrategy: schema.NamingStrategy{
+			TablePrefix:   facades.Config.GetString(fmt.Sprintf("database.connections.%s.prefix", connection)),
+			SingularTable: facades.Config.GetBool(fmt.Sprintf("database.connections.%s.singular", connection)),
+		},
 	})
 }
 
@@ -110,12 +119,7 @@ func readWriteSeparate(connection string, instance *gorm.DB, readConfigs, writeC
 	}))
 }
 
-type DB struct {
-	contractsorm.Query
-	instance *gorm.DB
-}
-
-func NewDB(ctx context.Context, connection string) (*DB, error) {
+func NewQuery(ctx context.Context, connection string) (*Query, error) {
 	db, err := New(connection)
 	if err != nil {
 		return nil, err
@@ -128,20 +132,7 @@ func NewDB(ctx context.Context, connection string) (*DB, error) {
 		db = db.WithContext(ctx)
 	}
 
-	return &DB{
-		Query:    NewQuery(db),
-		instance: db,
-	}, nil
-}
-
-func (r *DB) Begin() (contractsorm.Transaction, error) {
-	tx := r.instance.Begin()
-
-	return NewTransaction(tx), tx.Error
-}
-
-func (r *DB) Instance() *gorm.DB {
-	return r.instance
+	return NewQueryInstance(db), nil
 }
 
 type Transaction struct {
@@ -150,7 +141,7 @@ type Transaction struct {
 }
 
 func NewTransaction(instance *gorm.DB) *Transaction {
-	return &Transaction{Query: NewQuery(instance), instance: instance}
+	return &Transaction{Query: NewQueryInstance(instance), instance: instance}
 }
 
 func (r *Transaction) Commit() error {
@@ -165,12 +156,18 @@ type Query struct {
 	instance *gorm.DB
 }
 
-func NewQuery(instance *gorm.DB) *Query {
+func NewQueryInstance(instance *gorm.DB) *Query {
 	return &Query{instance}
 }
 
 func (r *Query) Association(association string) contractsorm.Association {
 	return r.instance.Association(association)
+}
+
+func (r *Query) Begin() (contractsorm.Transaction, error) {
+	tx := r.instance.Begin()
+
+	return NewTransaction(tx), tx.Error
 }
 
 func (r *Query) Driver() contractsorm.Driver {
@@ -219,18 +216,25 @@ func (r *Query) Create(value any) error {
 	return r.instance.Omit(orm.Associations).Create(value).Error
 }
 
-func (r *Query) Delete(value any, conds ...any) error {
-	return r.instance.Delete(value, conds...).Error
+func (r *Query) Delete(value any, conds ...any) (*contractsorm.Result, error) {
+	result := r.instance.Delete(value, conds...)
+	return &contractsorm.Result{
+		RowsAffected: result.RowsAffected,
+	}, result.Error
 }
 
 func (r *Query) Distinct(args ...any) contractsorm.Query {
 	tx := r.instance.Distinct(args...)
 
-	return NewQuery(tx)
+	return NewQueryInstance(tx)
 }
 
-func (r *Query) Exec(sql string, values ...any) error {
-	return r.instance.Exec(sql, values...).Error
+func (r *Query) Exec(sql string, values ...any) (*contractsorm.Result, error) {
+	result := r.instance.Exec(sql, values...)
+
+	return &contractsorm.Result{
+		RowsAffected: result.RowsAffected,
+	}, result.Error
 }
 
 func (r *Query) Find(dest any, conds ...any) error {
@@ -263,10 +267,36 @@ func (r *Query) First(dest any) error {
 	return err
 }
 
+func (r *Query) FirstOr(dest any, callback func() error) error {
+	err := r.instance.First(dest).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return callback()
+	}
+
+	return nil
+}
+
+func (r *Query) FirstOrFail(dest any) error {
+	err := r.instance.First(dest).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return orm.ErrRecordNotFound
+	}
+
+	return err
+}
+
+func (r *Query) FirstOrNew(dest any, attributes any, values ...any) error {
+	if len(values) > 0 {
+		return r.instance.Attrs(values[0]).FirstOrInit(dest, attributes).Error
+	} else {
+		return r.instance.FirstOrInit(dest, attributes).Error
+	}
+}
+
 func (r *Query) FirstOrCreate(dest any, conds ...any) error {
 	var err error
 	if len(conds) > 1 {
-		err = r.instance.Attrs([]any{conds[1]}...).FirstOrCreate(dest, []any{conds[0]}...).Error
+		err = r.instance.Attrs(conds[1]).FirstOrCreate(dest, conds[0]).Error
 	} else {
 		err = r.instance.FirstOrCreate(dest, conds...).Error
 	}
@@ -274,8 +304,12 @@ func (r *Query) FirstOrCreate(dest any, conds ...any) error {
 	return err
 }
 
-func (r *Query) ForceDelete(value any, conds ...any) error {
-	return r.instance.Unscoped().Delete(value, conds...).Error
+func (r *Query) ForceDelete(value any, conds ...any) (*contractsorm.Result, error) {
+	res := r.instance.Unscoped().Delete(value, conds...)
+
+	return &contractsorm.Result{
+		RowsAffected: res.RowsAffected,
+	}, res.Error
 }
 
 func (r *Query) Get(dest any) error {
@@ -285,25 +319,29 @@ func (r *Query) Get(dest any) error {
 func (r *Query) Group(name string) contractsorm.Query {
 	tx := r.instance.Group(name)
 
-	return NewQuery(tx)
+	return NewQueryInstance(tx)
 }
 
 func (r *Query) Having(query any, args ...any) contractsorm.Query {
 	tx := r.instance.Having(query, args...)
 
-	return NewQuery(tx)
+	return NewQueryInstance(tx)
+}
+
+func (r *Query) Instance() *gorm.DB {
+	return r.instance
 }
 
 func (r *Query) Join(query string, args ...any) contractsorm.Query {
 	tx := r.instance.Joins(query, args...)
 
-	return NewQuery(tx)
+	return NewQueryInstance(tx)
 }
 
 func (r *Query) Limit(limit int) contractsorm.Query {
 	tx := r.instance.Limit(limit)
 
-	return NewQuery(tx)
+	return NewQueryInstance(tx)
 }
 
 func (r *Query) Load(model any, relation string, args ...any) error {
@@ -369,31 +407,31 @@ func (r *Query) LoadMissing(model any, relation string, args ...any) error {
 func (r *Query) Model(value any) contractsorm.Query {
 	tx := r.instance.Model(value)
 
-	return NewQuery(tx)
+	return NewQueryInstance(tx)
 }
 
 func (r *Query) Offset(offset int) contractsorm.Query {
 	tx := r.instance.Offset(offset)
 
-	return NewQuery(tx)
+	return NewQueryInstance(tx)
 }
 
 func (r *Query) Omit(columns ...string) contractsorm.Query {
 	tx := r.instance.Omit(columns...)
 
-	return NewQuery(tx)
+	return NewQueryInstance(tx)
 }
 
 func (r *Query) Order(value any) contractsorm.Query {
 	tx := r.instance.Order(value)
 
-	return NewQuery(tx)
+	return NewQueryInstance(tx)
 }
 
 func (r *Query) OrWhere(query any, args ...any) contractsorm.Query {
 	tx := r.instance.Or(query, args...)
 
-	return NewQuery(tx)
+	return NewQueryInstance(tx)
 }
 
 func (r *Query) Paginate(page, limit int, dest any, total *int64) error {
@@ -420,7 +458,7 @@ func (r *Query) Pluck(column string, dest any) error {
 func (r *Query) Raw(sql string, values ...any) contractsorm.Query {
 	tx := r.instance.Raw(sql, values...)
 
-	return NewQuery(tx)
+	return NewQueryInstance(tx)
 }
 
 func (r *Query) Save(value any) error {
@@ -458,57 +496,78 @@ func (r *Query) Scan(dest any) error {
 func (r *Query) Select(query any, args ...any) contractsorm.Query {
 	tx := r.instance.Select(query, args...)
 
-	return NewQuery(tx)
+	return NewQueryInstance(tx)
 }
 
 func (r *Query) Table(name string, args ...any) contractsorm.Query {
 	tx := r.instance.Table(name, args...)
 
-	return NewQuery(tx)
+	return NewQueryInstance(tx)
 }
 
 func (r *Query) Update(column string, value any) error {
 	return r.instance.Update(column, value).Error
 }
 
-func (r *Query) Updates(values any) error {
+func (r *Query) Updates(values any) (*contractsorm.Result, error) {
 	if len(r.instance.Statement.Selects) > 0 && len(r.instance.Statement.Omits) > 0 {
-		return errors.New("cannot set Select and Omits at the same time")
+		return nil, errors.New("cannot set Select and Omits at the same time")
 	}
 
 	if len(r.instance.Statement.Selects) > 0 {
 		for _, val := range r.instance.Statement.Selects {
 			if val == orm.Associations {
-				return r.instance.Session(&gorm.Session{FullSaveAssociations: true}).Updates(values).Error
+				result := r.instance.Session(&gorm.Session{FullSaveAssociations: true}).Updates(values)
+				return &contractsorm.Result{
+					RowsAffected: result.RowsAffected,
+				}, result.Error
 			}
 		}
 
-		return r.instance.Updates(values).Error
+		result := r.instance.Updates(values)
+
+		return &contractsorm.Result{
+			RowsAffected: result.RowsAffected,
+		}, result.Error
 	}
 
 	if len(r.instance.Statement.Omits) > 0 {
 		for _, val := range r.instance.Statement.Omits {
 			if val == orm.Associations {
-				return r.instance.Omit(orm.Associations).Updates(values).Error
+				result := r.instance.Omit(orm.Associations).Updates(values)
+
+				return &contractsorm.Result{
+					RowsAffected: result.RowsAffected,
+				}, result.Error
 			}
 		}
+		result := r.instance.Updates(values)
 
-		return r.instance.Updates(values).Error
+		return &contractsorm.Result{
+			RowsAffected: result.RowsAffected,
+		}, result.Error
 	}
+	result := r.instance.Omit(orm.Associations).Updates(values)
 
-	return r.instance.Omit(orm.Associations).Updates(values).Error
+	return &contractsorm.Result{
+		RowsAffected: result.RowsAffected,
+	}, result.Error
+}
+
+func (r *Query) UpdateOrCreate(dest any, attributes any, values any) error {
+	return r.instance.Assign(values).FirstOrCreate(dest, attributes).Error
 }
 
 func (r *Query) Where(query any, args ...any) contractsorm.Query {
 	tx := r.instance.Where(query, args...)
 
-	return NewQuery(tx)
+	return NewQueryInstance(tx)
 }
 
 func (r *Query) WithTrashed() contractsorm.Query {
 	tx := r.instance.Unscoped()
 
-	return NewQuery(tx)
+	return NewQueryInstance(tx)
 }
 
 func (r *Query) With(query string, args ...any) contractsorm.Query {
@@ -517,7 +576,7 @@ func (r *Query) With(query string, args ...any) contractsorm.Query {
 		case func(contractsorm.Query) contractsorm.Query:
 			newArgs := []any{
 				func(db *gorm.DB) *gorm.DB {
-					query := arg(NewQuery(db))
+					query := arg(NewQueryInstance(db))
 
 					return query.(*Query).instance
 				},
@@ -525,13 +584,13 @@ func (r *Query) With(query string, args ...any) contractsorm.Query {
 
 			tx := r.instance.Preload(query, newArgs...)
 
-			return NewQuery(tx)
+			return NewQueryInstance(tx)
 		}
 	}
 
 	tx := r.instance.Preload(query, args...)
 
-	return NewQuery(tx)
+	return NewQueryInstance(tx)
 }
 
 func (r *Query) Scopes(funcs ...func(contractsorm.Query) contractsorm.Query) contractsorm.Query {
@@ -546,5 +605,5 @@ func (r *Query) Scopes(funcs ...func(contractsorm.Query) contractsorm.Query) con
 
 	tx := r.instance.Scopes(gormFuncs...)
 
-	return NewQuery(tx)
+	return NewQueryInstance(tx)
 }
